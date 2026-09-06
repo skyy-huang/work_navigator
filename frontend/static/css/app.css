@@ -362,6 +362,7 @@ svg { display: block; }
   border-radius: 16px;
   box-shadow: var(--shadow-sm);
   word-break: break-word;
+  white-space: pre-wrap;
 }
 .msg-bot .msg-body {
   background: var(--surface);

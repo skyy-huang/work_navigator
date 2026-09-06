@@ -18,6 +18,7 @@ from pydantic import BaseModel
 load_dotenv()
 
 from jobflow.ai_resume import polish_resume
+from jobflow.assistant.advisor import advise
 from jobflow.matching import extract_skills
 from jobflow.resume_docs import resume_to_docx, resume_to_pdf
 from jobflow.resume_parser import parse_resume_file
@@ -32,7 +33,7 @@ from jobflow.service import (
 )
 from jobflow.store import load_store, save_store
 
-app = FastAPI(title="职航 · 实习就业智能助手", version="0.3.1")
+app = FastAPI(title="职航 · 实习就业智能助手", version="0.4.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -72,6 +73,10 @@ class ApplyIn(BaseModel):
 class ExportIn(BaseModel):
     format: str = "docx"
     resume: ResumeIn
+
+
+class ChatIn(BaseModel):
+    message: str
 
 
 def _clean_text(value: Optional[str], limit: int = 2000) -> str:
@@ -238,6 +243,15 @@ async def export_resume_endpoint(payload: ExportIn):
         media_type=media_type,
         headers={"Content-Disposition": disposition},
     )
+
+
+# ─────────────────────────────────────────────
+# API：AI 求职助手（回答顾问）
+# ─────────────────────────────────────────────
+@app.post("/api/assistant/chat")
+async def assistant_chat(payload: ChatIn):
+    """回答顾问：先检索知识库与个人数据，再返回本地可溯源答案。"""
+    return advise(store, payload.message)
 
 
 # ─────────────────────────────────────────────

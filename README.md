@@ -2,7 +2,7 @@
 
 面向大学生实习就业的智能辅助系统（由「双创智能教练」重构而来）。
 
-当前处于 **v0.3.1 简历工具 Demo**：已打通「真实简历上传解析 / AI 润色 / 导出 → 岗位智能匹配 → 一键投递」主链路。
+当前处于 **v0.4.0 回答顾问 Demo**：已打通「真实简历上传解析 / AI 润色 / 导出 → 岗位智能匹配 → AI 求职问答 → 一键投递」主链路。
 
 ---
 
@@ -24,15 +24,16 @@ python -m uvicorn main:app --reload --port 8120
 - 简历：上传并解析 `.docx / .pdf / .txt / .md`，结构化创建/编辑（基本信息、求职意向、教育亮点、技能、项目内容/项目收获、实习、荣誉奖项），文本自动识别技能
 - AI 润色：DeepSeek 在线润色，账户不可用时自动降级为本地润色引擎；支持逐条审阅、修改后统一应用保存
 - 简历导出：无需先保存即可导出当前编辑内容为 Word / PDF（中文字体子集化，文件体积小）
+- AI 回答顾问：按意图读取简历、岗位匹配、投递进度与种子题库，返回带来源的岗位/简历/备考/进度建议
 - 机会速览：示例岗位库（互联网优先 + 金融/快消/制造/咨询），行业筛选与关键词搜索
 - 智能匹配：按「技能重合 62% + 方向 22% + 行业 10% + 城市 6%」确定性打分，展示命中与缺口技能
 - 一键投递：投递记录、撤回、演示状态推进（正式版将由笔试/面试模块驱动）
-- 页面框架：明亮学院风 SPA，AI 求职助手与面试题库为占位视图
+- 页面框架：明亮学院风 SPA；AI 求职助手为本地回答顾问，面试题库为框架示例
 
 ## 规划中
 
 - **笔试备战**（核心模块，方案待讨论）：题库、在线笔试、AI 解析
-- AI 求职助手：简历诊断/改写、模拟面试、真题解析
+- AI 求职助手：模拟面试、DeepSeek 自由表达层、用户长期记忆
 - 校园合作：企业/就业办管理端、校园内推岗位
 - 登录与多用户、岗位真实数据源
 
@@ -40,13 +41,17 @@ python -m uvicorn main:app --reload --port 8120
 
 ```
 ├── main.py                 # FastAPI：REST API + 页面托管
-├── jobflow/                # 新业务域（v0.3.1）
+├── jobflow/                # 新业务域（v0.4.0）
 │   ├── seed.py             #   默认档案 + 示例岗位库
 │   ├── store.py            #   JSON 文件持久化
 │   ├── matching.py         #   技能提取 + 岗位匹配引擎
 │   ├── resume_parser.py    #   文件上传解析（docx/pdf/txt）
 │   ├── resume_docs.py      #   Word / PDF 导出
 │   ├── ai_resume.py        #   DeepSeek + 本地 AI 润色
+│   ├── assistant/          #   AI 求职回答顾问
+│   │   ├── knowledge.py    #     种子知识库
+│   │   ├── question_bank.py#     结构化种子题库
+│   │   └── advisor.py      #     意图路由 + 混合检索 + 回答
 │   └── service.py          #   进度/任务/投递聚合服务
 ├── frontend/
 │   ├── index.html          # 职航 SPA
@@ -65,6 +70,7 @@ python -m uvicorn main:app --reload --port 8120
 | POST | `/api/resume/parse` | 上传简历文件并解析回填 |
 | POST | `/api/resume/polish` | 生成简历润色建议 |
 | POST | `/api/resume/export` | 导出当前编辑内容为 Word / PDF |
+| POST | `/api/assistant/chat` | AI 回答顾问：结合简历/岗位/题库作答 |
 | GET | `/api/jobs?industry=&q=` | 岗位列表（带匹配分） |
 | GET | `/api/recommendations` | 按简历排序的推荐岗位 |
 | POST | `/api/applications` | 投递岗位 |

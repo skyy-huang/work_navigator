@@ -873,7 +873,7 @@
   }
 
   /* ═══════════════════════════════════════════════
-     AI 求职助手（占位对话）
+     AI 求职助手（回答顾问）
   ═══════════════════════════════════════════════ */
   const chatMessages = $('chatMessages');
   const chatInput = $('chatInput');
@@ -884,9 +884,9 @@
   }
 
   function welcomeText() {
-    return '你好，我是你的求职搭子「小航」👋\n\n' +
-      '目前职航已打通：简历创建 → 岗位智能匹配 → 一键投递。\n' +
-      '我（AI 问答 / 简历改写 / 模拟面试）将在后续版本接入，你可以先发条消息体验占位对话。';
+    return '你好，我是你的求职顾问「小航」👋\n\n' +
+      'v0.4 回答顾问已接入：我会读取你的简历、岗位匹配、投递进度和种子知识库后再回答，不凭感觉编。\n' +
+      '你可以问：后端实习怎么准备、我的简历适合什么岗位、帮我推荐字节后端笔试题。';
   }
 
   function pushMessage(kind, text) {
@@ -899,19 +899,43 @@
     wrap.appendChild(body);
     chatMessages.appendChild(wrap);
     scrollChatToBottom();
+    return body;
   }
 
-  function sendMessage(rawText) {
+  function setChatSuggestions(suggestions) {
+    const wrap = $('chatSuggest');
+    if (!wrap || !suggestions || !suggestions.length) return;
+    wrap.innerHTML = '<span class="suggest-label">接下来可以问：</span>' +
+      suggestions.map((suggestion) =>
+        '<button class="suggest-chip" type="button" data-suggest="' + esc(suggestion) + '">' +
+        esc(suggestion) + '</button>'
+      ).join('');
+  }
+
+  async function sendMessage(rawText) {
     const text = (rawText || '').trim();
     if (!text || !chatInput) return;
     pushMessage('user', text);
     chatInput.value = '';
     chatInput.style.height = 'auto';
     chatSend.disabled = true;
-    const preview = text.length > 36 ? text.slice(0, 36) + '…' : text;
-    setTimeout(() => {
-      pushMessage('bot', '已收到：' + preview + '\n\n这是框架占位回复。正式接入后，小航会结合你的简历与投递进度给出针对性建议（简历诊断 / 模拟面试 / 真题解析等）。');
-    }, 600);
+    const pendingBody = pushMessage('bot', '小航正在读取简历、岗位数据和知识库…');
+    try {
+      const data = await api('/api/assistant/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text }),
+      });
+      const sources = data.sources && data.sources.length
+        ? '\n\n来源：' + data.sources.join(' · ')
+        : '\n\n来源：种子知识库与当前个人数据';
+      pendingBody.textContent = data.reply + sources;
+      if (data.suggestions && data.suggestions.length) setChatSuggestions(data.suggestions);
+    } catch (err) {
+      pendingBody.textContent = '回答失败：' + err.message + '\n\n你可以稍后再试，或直接去对应功能页操作。';
+    } finally {
+      chatSend.disabled = false;
+    }
   }
 
   /* ═══════════════════════════════════════════════
@@ -1086,14 +1110,20 @@
         sendMessage(chatInput.value);
       }
     });
-    document.querySelectorAll('.suggest-chip').forEach((chip) => {
-      chip.addEventListener('click', () => sendMessage(chip.getAttribute('data-suggest')));
+    $('chatSuggest').addEventListener('click', (event) => {
+      const chip = event.target.closest('.suggest-chip');
+      if (chip) sendMessage(chip.getAttribute('data-suggest'));
     });
     const clearChatBtn = document.querySelector('[data-action="clear-chat"]');
     if (clearChatBtn) {
       clearChatBtn.addEventListener('click', () => {
         chatMessages.innerHTML = '';
         pushMessage('bot', welcomeText());
+        setChatSuggestions([
+          '我的简历适合什么岗位',
+          '后端实习怎么准备',
+          '帮我推荐几道字节后端笔试题',
+        ]);
         chatInput.focus();
       });
     }

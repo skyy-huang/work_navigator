@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>职航 · 实习就业智能助手</title>
-  <link rel="stylesheet" href="/static/css/app.css?v=3" />
+  <link rel="stylesheet" href="/static/css/app.css?v=4" />
 </head>
 <body>
   <div class="app">
@@ -18,7 +18,7 @@
           </a>
         </div>
         <div class="topbar-right">
-          <span class="pill pill-brand">v0.3.1 Rich Resume</span>
+          <span class="pill pill-brand">v0.4.0 Assistant</span>
           <div class="user-chip">
             <span class="avatar" id="userAvatar">李</span>
             <span class="user-meta">
@@ -59,7 +59,7 @@
           <div class="side-note-title">🤝 校园合作</div>
           <p>导师与就业办管理端、校园内推岗位规划中，敬请期待。</p>
         </div>
-        <div class="side-version">职航 v0.3.1 · Rich Resume</div>
+        <div class="side-version">职航 v0.4.0 · Assistant</div>
       </nav>
 
       <main class="main">
@@ -140,7 +140,7 @@
           </div>
         </section>
 
-        <!-- ═══════════ AI 求职助手（占位） ═══════════ -->
+        <!-- ═══════════ AI 求职助手（回答顾问） ═══════════ -->
         <section class="view" id="view-assistant">
           <div class="chat-layout">
             <div class="chat-main">
@@ -148,16 +148,16 @@
                 <span class="bot-avatar">航</span>
                 <div class="bot-meta">
                   <b>小航 · AI 求职助手</b>
-                  <i><span class="status-dot"></span>能力建设中，可先体验演示交互</i>
+                  <i><span class="status-dot"></span>回答顾问已接入 · 结合简历 / 岗位 / 题库作答</i>
                 </div>
                 <button class="text-btn" type="button" data-action="clear-chat">清空会话</button>
               </div>
               <div class="chat-messages" id="chatMessages"></div>
               <div class="chat-suggest" id="chatSuggest">
                 <span class="suggest-label">试试这样问：</span>
-                <button class="suggest-chip" type="button" data-suggest="帮我看看后端开发实习的简历怎么写">后端简历怎么写</button>
-                <button class="suggest-chip" type="button" data-suggest="模拟一次字节跳动后端开发的一面">模拟字节后端一面</button>
-                <button class="suggest-chip" type="button" data-suggest="我的简历投出去没回音怎么办">简历石沉大海</button>
+                <button class="suggest-chip" type="button" data-suggest="我的简历适合什么岗位">简历适合什么岗位</button>
+                <button class="suggest-chip" type="button" data-suggest="后端实习怎么准备">后端实习怎么准备</button>
+                <button class="suggest-chip" type="button" data-suggest="帮我推荐几道字节后端笔试题">推荐字节后端题</button>
               </div>
               <div class="chat-composer">
                 <textarea id="chatInput" rows="1" placeholder="输入你的求职问题，Ctrl+Enter 或点击发送…"></textarea>
@@ -166,12 +166,12 @@
             </div>
             <aside class="chat-side">
               <div class="card">
-                <div class="card-head"><h2>即将上线能力</h2></div>
+                <div class="card-head"><h2>回答顾问能力</h2></div>
                 <ul class="ability-list">
-                  <li>简历逐段诊断与改写<span class="chip chip-soft">建设中</span></li>
-                  <li>岗位 JD 匹配问答<span class="chip chip-soft">建设中</span></li>
-                  <li>模拟面试 · 追问陪练<span class="chip chip-soft">建设中</span></li>
-                  <li>笔试真题 AI 解析<span class="chip chip-soft">规划中</span></li>
+                  <li>简历诊断 · 技能缺口<span class="chip chip-ok">已接入</span></li>
+                  <li>岗位匹配与机会解读<span class="chip chip-ok">已接入</span></li>
+                  <li>求职状态与今日任务<span class="chip chip-ok">已接入</span></li>
+                  <li>模拟面试 · 追问陪练<span class="chip chip-soft">下一阶段</span></li>
                 </ul>
               </div>
             </aside>
@@ -473,6 +473,6 @@
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="/static/js/app.js?v=3"></script>
+  <script src="/static/js/app.js?v=4"></script>
 </body>
 </html>
