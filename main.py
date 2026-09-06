@@ -6,17 +6,21 @@
 
 import os
 from typing import List, Optional
+from urllib.parse import quote
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 load_dotenv()
 
+from jobflow.ai_resume import polish_resume
 from jobflow.matching import extract_skills
+from jobflow.resume_docs import resume_to_docx, resume_to_pdf
+from jobflow.resume_parser import parse_resume_file
 from jobflow.service import (
     advance_application,
     application_view,
@@ -28,7 +32,7 @@ from jobflow.service import (
 )
 from jobflow.store import load_store, save_store
 
-app = FastAPI(title="职航 · 实习就业智能助手", version="0.2.0")
+app = FastAPI(title="职航 · 实习就业智能助手", version="0.3.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -45,6 +49,10 @@ store = load_store()
 # 数据模型
 # ─────────────────────────────────────────────
 class ResumeIn(BaseModel):
+    full_name: str = ""
+    phone: str = ""
+    email: str = ""
+    wechat: str = ""
     target_role: str = ""
     target_direction: str = ""
     target_industry: str = ""
@@ -60,6 +68,11 @@ class ApplyIn(BaseModel):
     job_id: str
 
 
+class ExportIn(BaseModel):
+    format: str = "docx"
+    resume: ResumeIn
+
+
 def _clean_text(value: Optional[str], limit: int = 2000) -> str:
     return (value or "").strip()[:limit]
 
@@ -71,10 +84,31 @@ def _clean_list(items) -> List[str]:
 def _clean_blocks(blocks) -> List[dict]:
     out = []
     for block in blocks or []:
-        item = {key: _clean_text(block.get(key), 200) for key in block.keys()}
+        item = {
+            key: _clean_text(block.get(key), 2000 if key in ("description", "achievements") else 200)
+            for key in block.keys()
+        }
         if any(item.values()):
             out.append(item)
     return out
+
+
+def _resume_dict(payload: ResumeIn) -> dict:
+    return {
+        "full_name": _clean_text(payload.full_name, 40),
+        "phone": _clean_text(payload.phone, 30),
+        "email": _clean_text(payload.email, 80),
+        "wechat": _clean_text(payload.wechat, 40),
+        "target_role": _clean_text(payload.target_role, 80),
+        "target_direction": _clean_text(payload.target_direction, 40),
+        "target_industry": _clean_text(payload.target_industry, 40),
+        "target_city": _clean_text(payload.target_city, 40),
+        "self_intro": _clean_text(payload.self_intro, 800),
+        "education": _clean_blocks(payload.education)[:4],
+        "projects": _clean_blocks(payload.projects)[:4],
+        "internships": _clean_blocks(payload.internships)[:4],
+        "skills": _clean_list(payload.skills)[:30],
+    }
 
 
 # ─────────────────────────────────────────────
@@ -105,17 +139,7 @@ async def put_resume(payload: ResumeIn):
     if not has_content:
         raise HTTPException(status_code=400, detail="请至少填写求职意向或一段经历")
 
-    resume = {
-        "target_role": _clean_text(payload.target_role, 80),
-        "target_direction": _clean_text(payload.target_direction, 40),
-        "target_industry": _clean_text(payload.target_industry, 40),
-        "target_city": _clean_text(payload.target_city, 40),
-        "self_intro": _clean_text(payload.self_intro, 600),
-        "education": _clean_blocks(payload.education)[:4],
-        "projects": _clean_blocks(payload.projects)[:4],
-        "internships": _clean_blocks(payload.internships)[:4],
-        "skills": _clean_list(payload.skills)[:30],
-    }
+    resume = _resume_dict(payload)
     store["resume"] = resume
     save_store(store)
     return {
@@ -123,6 +147,79 @@ async def put_resume(payload: ResumeIn):
         "resume_skills": extract_skills(resume),
         "message": "简历已保存",
     }
+
+
+@app.post("/api/resume/parse")
+async def parse_uploaded_resume(file: UploadFile = File(...)):
+    """上传并解析 .txt / .docx / .pdf 简历，返回可回填结构。"""
+    filename = file.filename or "resume.txt"
+    data = await file.read(8 * 1024 * 1024)
+    try:
+        result = parse_resume_file(filename, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "filename": filename,
+        "preview": result["preview"],
+        "warnings": result["warnings"],
+        "resume": result["resume"],
+    }
+
+
+@app.post("/api/resume/polish")
+async def polish_resume_endpoint(payload: ResumeIn):
+    """生成简历润色建议：DeepSeek 不可用时自动降级到离线引擎。"""
+    resume = _resume_dict(payload)
+    if not any([
+        resume["self_intro"],
+        resume["projects"],
+        resume["internships"],
+    ]):
+        raise HTTPException(status_code=400, detail="请先补充自我介绍或项目 / 实习描述，再进行 AI 润色")
+    return polish_resume(resume)
+
+
+@app.post("/api/resume/export")
+async def export_resume_endpoint(payload: ExportIn):
+    """把当前编辑中的简历导出为 Word / PDF（无需先保存到服务器）。"""
+    resume = _resume_dict(payload.resume)
+    has_content = any([
+        resume["target_role"],
+        resume["self_intro"],
+        resume["education"],
+        resume["projects"],
+        resume["internships"],
+    ])
+    if not has_content:
+        raise HTTPException(status_code=400, detail="请先填写简历内容，再导出")
+    output_format = (payload.format or "docx").lower()
+    if output_format == "docx":
+        try:
+            content = resume_to_docx(resume, store.get("profile"))
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail="Word 导出失败：" + str(exc))
+        media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        ext = ".docx"
+    elif output_format == "pdf":
+        try:
+            content = resume_to_pdf(resume, store.get("profile"))
+        except RuntimeError as exc:
+            raise HTTPException(status_code=501, detail=str(exc))
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail="PDF 导出失败：" + str(exc))
+        media_type = "application/pdf"
+        ext = ".pdf"
+    else:
+        raise HTTPException(status_code=400, detail="导出格式仅支持 docx 或 pdf")
+    name = resume.get("full_name") or (store.get("profile") or {}).get("name") or "我的简历"
+    role = resume.get("target_role") or "求职"
+    filename = f"{name}-{role}-简历{ext}"
+    disposition = "attachment; filename*=UTF-8''" + quote(filename)
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": disposition},
+    )
 
 
 # ─────────────────────────────────────────────

@@ -430,6 +430,10 @@
      简历编辑器（创建 / 编辑 / 技能提取）
   ═══════════════════════════════════════════════ */
   const SAMPLE_RESUME = {
+    full_name: '李同学',
+    phone: '13800000000',
+    email: 'li.tongxue@example.com',
+    wechat: 'zhihang-demo',
     target_role: '后端开发实习生',
     target_direction: '后端',
     target_industry: '互联网',
@@ -507,6 +511,10 @@
     }).filter((row) => row.school || row.major || row.degree);
 
     return {
+      full_name: $('fName').value.trim(),
+      phone: $('fPhone').value.trim(),
+      email: $('fEmail').value.trim(),
+      wechat: $('fWechat').value.trim(),
       target_role: $('fRole').value.trim(),
       target_direction: $('fDirection').value,
       target_industry: $('fIndustry').value,
@@ -558,6 +566,11 @@
 
   function fillFormWith(resume) {
     resume = resume || {};
+    const profile = state.me && state.me.profile;
+    $('fName').value = resume.full_name || (profile && profile.name) || '';
+    $('fPhone').value = resume.phone || '';
+    $('fEmail').value = resume.email || '';
+    $('fWechat').value = resume.wechat || '';
     $('fRole').value = resume.target_role || '';
     $('fDirection').value = resume.target_direction || '';
     $('fIndustry').value = resume.target_industry || '';
@@ -596,6 +609,228 @@
     } finally {
       saveBtn.disabled = false;
       saveBtn.textContent = '保存简历';
+    }
+  }
+
+  /* ═══════════════════════════════════════════════
+     简历上传解析 / AI 润色 / 导出
+  ═══════════════════════════════════════════════ */
+  const uploadModal = $('uploadModal');
+  const polishModal = $('polishModal');
+  let parsedResume = null;
+  let polishChanges = [];
+
+  function closeUploadModal() {
+    uploadModal.classList.add('hidden');
+    parsedResume = null;
+  }
+
+  function closePolishModal() {
+    polishModal.classList.add('hidden');
+    polishChanges = [];
+  }
+
+  function openUploadModal(filename) {
+    $('uploadFileName').textContent = filename;
+    $('uploadWarnings').innerHTML = '';
+    $('uploadStats').innerHTML = '<p class="loading-hint">正在解析文件…</p>';
+    $('uploadPreview').textContent = '';
+    $('uploadApplyBtn').disabled = true;
+    uploadModal.classList.remove('hidden');
+  }
+
+  function renderUploadResult(data) {
+    const resume = data.resume || {};
+    const profile = state.me && state.me.profile;
+    $('uploadFileName').textContent = data.filename + ' · 解析完成';
+    const warnings = data.warnings || [];
+    $('uploadWarnings').innerHTML = warnings.length
+      ? warnings.map((warn) => '<div class="warn-chip">⚠ ' + esc(warn) + '</div>').join('')
+      : '';
+    const stats = [
+      ['姓名', resume.full_name || (profile && profile.name) || '未识别'],
+      ['求职意向', resume.target_role || '未识别'],
+      ['教育经历', (resume.education || []).length + ' 条'],
+      ['项目经历', (resume.projects || []).length + ' 条'],
+      ['实习经历', (resume.internships || []).length + ' 条'],
+      ['技能标签', (resume.skills || []).length + ' 个'],
+    ];
+    $('uploadStats').innerHTML = stats.map((item) =>
+      '<span class="parse-stat"><i>' + esc(item[0]) + '</i><b>' + esc(item[1]) + '</b></span>'
+    ).join('');
+    $('uploadPreview').textContent = data.preview || '未提取到可预览文本';
+    parsedResume = resume;
+    $('uploadApplyBtn').disabled = false;
+  }
+
+  async function handleResumeFile(file) {
+    if (!file) return;
+    openUploadModal(file.name);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const data = await api('/api/resume/parse', { method: 'POST', body: form });
+      renderUploadResult(data);
+    } catch (err) {
+      closeUploadModal();
+      showToast('解析失败：' + err.message, 3600);
+    }
+  }
+
+  function polishTitle(change) {
+    const match = String(change.key || '').match(/^(project|intern)-(\d+)$/);
+    if (change.key === 'intro') return '个人简介';
+    if (!match) return '文字描述';
+    const current = collectResume();
+    const list = match[1] === 'project' ? current.projects : current.internships;
+    const item = list[Number(match[2])] || {};
+    const label = match[1] === 'project'
+      ? (item.name || '项目经历')
+      : ((item.company ? item.company + ' · ' : '') + (item.role || '实习经历'));
+    return match[1] === 'project' ? '项目经历 · ' + label : '实习经历 · ' + label;
+  }
+
+  function polishItemHtml(change, index) {
+    return '<article class="polish-item">' +
+      '<div class="polish-top">' +
+      '<label class="polish-toggle"><input type="checkbox" data-polish-toggle="' + index + '" checked /><span>采用</span></label>' +
+      '<b>' + esc(polishTitle(change)) + '</b>' +
+      '</div>' +
+      '<p class="polish-reason">' + esc(change.reason || '让表达更专业') + '</p>' +
+      '<div class="polish-compare">' +
+      '<div class="polish-col"><span class="polish-col-label">原文</span><p>' + esc(change.original) + '</p></div>' +
+      '<div class="polish-col"><span class="polish-col-label">润色后（可编辑）</span>' +
+      '<textarea rows="4" data-polish-text="' + index + '">' + esc(change.polished) + '</textarea></div>' +
+      '</div></article>';
+  }
+
+  function renderPolishResult(data) {
+    polishChanges = data.changes || [];
+    $('polishSource').textContent = data.source === 'deepseek' ? 'DeepSeek' : '离线引擎';
+    $('polishNote').textContent = data.note || '';
+    if (!polishChanges.length) {
+      $('polishList').innerHTML = '<p class="loading-hint">' + esc(data.note || '暂无建议') + '</p>';
+      $('polishApplyBtn').disabled = true;
+      return;
+    }
+    $('polishList').innerHTML = polishChanges.map(polishItemHtml).join('');
+    updatePolishApplyState();
+  }
+
+  function updatePolishApplyState() {
+    const count = Array.prototype.filter.call(
+      $('polishList').querySelectorAll('[data-polish-toggle]'),
+      (box) => box.checked,
+    ).length;
+    const btn = $('polishApplyBtn');
+    btn.disabled = count === 0;
+    btn.textContent = count ? '应用所选 ' + count + ' 条并保存' : '应用所选并保存';
+  }
+
+  async function polishCurrentResume() {
+    const resume = collectResume();
+    if (!resume.self_intro && !resume.projects.length && !resume.internships.length) {
+      showToast('请先补充自我介绍或项目 / 实习描述', 3000);
+      return;
+    }
+    const btn = $('resumePolishBtn');
+    btn.disabled = true;
+    btn.textContent = '润色中…';
+    $('polishSource').textContent = '生成中…';
+    $('polishNote').textContent = '正在分析当前简历内容…';
+    $('polishList').innerHTML = '<p class="loading-hint">AI 正在润色，通常需要几秒钟…</p>';
+    $('polishApplyBtn').disabled = true;
+    polishModal.classList.remove('hidden');
+    try {
+      const data = await api('/api/resume/polish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(resume),
+      });
+      renderPolishResult(data);
+    } catch (err) {
+      $('polishList').innerHTML = '<p class="loading-hint">润色失败：' + esc(err.message) + '</p>';
+      $('polishSource').textContent = '失败';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'AI 润色';
+    }
+  }
+
+  function applyPolishValue(change, value) {
+    if (change.key === 'intro') {
+      $('fIntro').value = value;
+      return;
+    }
+    const match = String(change.key || '').match(/^(project|intern)-(\d+)$/);
+    if (!match) return;
+    const containerId = match[1] === 'project' ? 'projList' : 'interList';
+    const row = $(containerId).querySelectorAll('.row-card')[Number(match[2])];
+    if (!row) return;
+    const textarea = row.querySelector('[data-k="description"]');
+    if (textarea) textarea.value = value;
+  }
+
+  async function applySelectedPolish() {
+    const rows = $('polishList').querySelectorAll('.polish-item');
+    rows.forEach((row) => {
+      const index = Number(row.querySelector('[data-polish-toggle]').getAttribute('data-polish-toggle'));
+      if (!row.querySelector('[data-polish-toggle]').checked) return;
+      const change = polishChanges[index];
+      const value = row.querySelector('[data-polish-text]').value.trim();
+      if (change && value) applyPolishValue(change, value);
+    });
+    closePolishModal();
+    await saveResume();
+  }
+
+  async function exportResume(format) {
+    const resume = collectResume();
+    if (!resume.target_role && !resume.self_intro && !resume.education.length &&
+        !resume.projects.length && !resume.internships.length) {
+      showToast('请先填写简历内容，再导出', 3000);
+      return;
+    }
+    const trigger = document.querySelector('[data-export="' + format + '"]');
+    const originalText = trigger ? trigger.textContent : '';
+    if (trigger) {
+      trigger.disabled = true;
+      trigger.textContent = '正在导出…';
+    }
+    try {
+      const res = await fetch('/api/resume/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ format: format, resume: resume }),
+      });
+      if (!res.ok) {
+        let detail = '导出失败 (' + res.status + ')';
+        try {
+          const data = await res.json();
+          if (data && data.detail) detail = data.detail;
+        } catch (err) { /* ignore */ }
+        throw new Error(detail);
+      }
+      const blob = await res.blob();
+      const name = resume.full_name || (state.me && state.me.profile && state.me.profile.name) || '我的简历';
+      const ext = format === 'pdf' ? 'pdf' : 'docx';
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = name + '-简历.' + ext;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      showToast('简历已导出为 .' + ext);
+    } catch (err) {
+      showToast(err.message, 3600);
+    } finally {
+      if (trigger) {
+        trigger.disabled = false;
+        trigger.textContent = originalText || ('导出 ' + format.toUpperCase());
+      }
+      $('resumeExportDrop').classList.add('hidden');
     }
   }
 
@@ -719,6 +954,43 @@
       fillFormWith(SAMPLE_RESUME);
       showToast('已填入示例，点击保存即可生效');
     });
+    $('resumeUploadBtn').addEventListener('click', () => $('resumeUploadInput').click());
+    $('resumeUploadInput').addEventListener('change', (event) => {
+      handleResumeFile(event.target.files && event.target.files[0]);
+      event.target.value = '';
+    });
+    $('uploadCloseBtn').addEventListener('click', closeUploadModal);
+    $('uploadCancelBtn').addEventListener('click', closeUploadModal);
+    $('uploadApplyBtn').addEventListener('click', () => {
+      if (!parsedResume) return;
+      fillFormWith(parsedResume);
+      closeUploadModal();
+      showToast('解析内容已应用到编辑器，请核对后保存');
+    });
+    uploadModal.addEventListener('click', (event) => {
+      if (event.target === uploadModal) closeUploadModal();
+    });
+
+    $('resumePolishBtn').addEventListener('click', polishCurrentResume);
+    $('polishCloseBtn').addEventListener('click', closePolishModal);
+    $('polishCancelBtn').addEventListener('click', closePolishModal);
+    $('polishApplyBtn').addEventListener('click', applySelectedPolish);
+    polishModal.addEventListener('click', (event) => {
+      if (event.target === polishModal) closePolishModal();
+    });
+    $('polishList').addEventListener('change', updatePolishApplyState);
+
+    const exportBtn = $('resumeExportBtn');
+    const exportDrop = $('resumeExportDrop');
+    exportBtn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      exportDrop.classList.toggle('hidden');
+    });
+    document.addEventListener('click', () => exportDrop.classList.add('hidden'));
+    exportDrop.querySelectorAll('[data-export]').forEach((item) => {
+      item.addEventListener('click', () => exportResume(item.getAttribute('data-export')));
+    });
+
     const skillInput = $('skillInput');
     $('skillAddBtn').addEventListener('click', () => addSkill(skillInput.value));
     skillInput.addEventListener('keydown', (event) => {
