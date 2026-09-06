@@ -32,7 +32,7 @@ from jobflow.service import (
 )
 from jobflow.store import load_store, save_store
 
-app = FastAPI(title="职航 · 实习就业智能助手", version="0.3.0")
+app = FastAPI(title="职航 · 实习就业智能助手", version="0.3.1")
 
 app.add_middleware(
     CORSMiddleware,
@@ -61,6 +61,7 @@ class ResumeIn(BaseModel):
     education: List[dict] = []
     projects: List[dict] = []
     internships: List[dict] = []
+    honors: List[str] = []
     skills: List[str] = []
 
 
@@ -81,11 +82,18 @@ def _clean_list(items) -> List[str]:
     return [str(item).strip()[:40] for item in (items or []) if str(item).strip()]
 
 
+def _clean_honors(items) -> List[str]:
+    return [str(item).strip()[:120] for item in (items or []) if str(item).strip()][:12]
+
+
 def _clean_blocks(blocks) -> List[dict]:
     out = []
     for block in blocks or []:
         item = {
-            key: _clean_text(block.get(key), 2000 if key in ("description", "achievements") else 200)
+            key: _clean_text(
+                block.get(key),
+                2000 if key in ("description", "achievement", "achievements", "highlights") else 200,
+            )
             for key in block.keys()
         }
         if any(item.values()):
@@ -107,6 +115,7 @@ def _resume_dict(payload: ResumeIn) -> dict:
         "education": _clean_blocks(payload.education)[:4],
         "projects": _clean_blocks(payload.projects)[:4],
         "internships": _clean_blocks(payload.internships)[:4],
+        "honors": _clean_honors(payload.honors),
         "skills": _clean_list(payload.skills)[:30],
     }
 
@@ -140,6 +149,15 @@ async def put_resume(payload: ResumeIn):
         raise HTTPException(status_code=400, detail="请至少填写求职意向或一段经历")
 
     resume = _resume_dict(payload)
+    profile = store.setdefault("profile", {})
+    if resume["full_name"]:
+        profile["name"] = resume["full_name"]
+    if resume["education"]:
+        first_education = resume["education"][0]
+        if first_education.get("school"):
+            profile["school"] = first_education["school"]
+        if first_education.get("major"):
+            profile["major"] = first_education["major"]
     store["resume"] = resume
     save_store(store)
     return {

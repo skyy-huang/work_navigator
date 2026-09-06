@@ -439,12 +439,20 @@
     target_industry: '互联网',
     target_city: '杭州',
     self_intro: '计算机专业大三学生，熟悉 Java 与 Spring Boot 全栈开发，动手完成过秒杀系统与校园二手交易平台两个完整项目，注重工程规范与性能优化，目标拿下大厂后端实习。',
-    education: [{ school: '示例大学', major: '计算机科学与技术', degree: '本科', period: '2023 - 2027' }],
+    education: [{
+      school: '示例大学',
+      major: '计算机科学与技术',
+      degree: '本科',
+      period: '2023 - 2027',
+      highlights: '专业排名：前 20%\n主修课程：数据结构(92)、计算机网络(88)、操作系统(91)',
+    }],
     skills: ['Java', 'Spring Boot', 'MySQL', 'Redis', '分布式'],
     projects: [{
       name: '校园二手交易平台',
       period: '2025.03 - 2025.08',
+      subtitle: '校级创新训练项目 | 后端负责人',
       description: '负责订单与支付模块，使用 Spring Boot + MyBatis + MySQL 开发；用 Redis 缓存热点商品并做接口幂等，支撑 2000+ 日活。',
+      achievement: '完成需求分析到线上部署全流程，沉淀了接口设计与性能优化文档。',
     }],
     internships: [{
       company: '某互联网创业公司',
@@ -452,6 +460,7 @@
       period: '2026.06 - 2026.08',
       description: '参与用户增长后台接口开发与数据看板搭建，使用 SQL 分析留存漏斗并输出 3 条优化建议，被业务采纳。',
     }],
+    honors: ['2025.10 示例大学一等奖学金', '2025.07 省级创新创业竞赛二等奖'],
   };
 
   function eduRowHtml(data) {
@@ -463,7 +472,10 @@
       '<label class="field"><span>专业</span><input data-k="major" value="' + esc(data.major) + '" placeholder="如：计算机科学与技术" maxlength="40" /></label>' +
       '<label class="field"><span>学历</span><input data-k="degree" value="' + esc(data.degree) + '" placeholder="本科 / 硕士" maxlength="20" /></label>' +
       '<label class="field"><span>时间</span><input data-k="period" value="' + esc(data.period) + '" placeholder="2023 - 2027" maxlength="30" /></label>' +
-      '</div></div>';
+      '</div>' +
+      '<label class="field"><span>补充亮点（排名 / GPA / 主修课程等，每行一条）</span>' +
+      '<textarea rows="2" data-k="highlights" placeholder="专业排名：前 20%\n主修课程：数据结构(92)、计算机网络(88)">' + esc(data.highlights) + '</textarea></label>' +
+      '</div>';
   }
 
   function projectRowHtml(data) {
@@ -474,8 +486,12 @@
       '<label class="field"><span>项目名称</span><input data-k="name" value="' + esc(data.name) + '" placeholder="如：校园二手交易平台" maxlength="60" /></label>' +
       '<label class="field"><span>时间</span><input data-k="period" value="' + esc(data.period) + '" placeholder="2025.03 - 2025.08" maxlength="30" /></label>' +
       '</div>' +
-      '<label class="field"><span>描述（写清职责、技术栈与量化结果）</span>' +
+      '<label class="field"><span>副标题 / 赛事信息</span>' +
+      '<input data-k="subtitle" value="' + esc(data.subtitle) + '" placeholder="如：校级创新训练项目 | 队长 / EI | 独立作者" maxlength="120" /></label>' +
+      '<label class="field"><span>项目内容（职责、技术栈与量化结果）</span>' +
       '<textarea rows="2" data-k="description" placeholder="用 Spring Boot + MySQL 开发…支撑 2000+ 日活">' + esc(data.description) + '</textarea></label>' +
+      '<label class="field"><span>项目收获 / 成果</span>' +
+      '<textarea rows="2" data-k="achievement" placeholder="沉淀了…；掌握了…">' + esc(data.achievement) + '</textarea></label>' +
       '</div>';
   }
 
@@ -493,6 +509,15 @@
       '</div>';
   }
 
+  function honorRowHtml(value) {
+    value = value || '';
+    return '<div class="row-card">' +
+      '<button class="row-remove" type="button" data-remove="honor" aria-label="删除">✕</button>' +
+      '<label class="field"><span>荣誉 / 奖项</span>' +
+      '<input data-k="honor" value="' + esc(value) + '" placeholder="如：2025.10 国家奖学金" maxlength="120" /></label>' +
+      '</div>';
+  }
+
   function blockRows(containerId, keys) {
     return Array.prototype.map.call($(containerId).querySelectorAll('.row-card'), (row) => {
       const item = {};
@@ -507,8 +532,18 @@
   function collectResume() {
     const eduRows = Array.prototype.map.call($('eduList').querySelectorAll('.row-card'), (row) => {
       const get = (key) => (row.querySelector('[data-k="' + key + '"]') || {}).value || '';
-      return { school: get('school').trim(), major: get('major').trim(), degree: get('degree').trim(), period: get('period').trim() };
+      return {
+        school: get('school').trim(),
+        major: get('major').trim(),
+        degree: get('degree').trim(),
+        period: get('period').trim(),
+        highlights: get('highlights').trim(),
+      };
     }).filter((row) => row.school || row.major || row.degree);
+    const honors = Array.prototype.map.call($('honorList').querySelectorAll('.row-card'), (row) => {
+      const input = row.querySelector('[data-k="honor"]');
+      return input ? input.value.trim() : '';
+    }).filter(Boolean);
 
     return {
       full_name: $('fName').value.trim(),
@@ -521,8 +556,9 @@
       target_city: $('fCity').value.trim(),
       self_intro: $('fIntro').value.trim(),
       education: eduRows,
-      projects: blockRows('projList', ['name', 'period', 'description']),
+      projects: blockRows('projList', ['name', 'period', 'subtitle', 'description', 'achievement']),
       internships: blockRows('interList', ['company', 'role', 'period', 'description']),
+      honors: honors,
       skills: state.skills.slice(),
     };
   }
@@ -581,6 +617,7 @@
     $('eduList').innerHTML = (resume.education && resume.education.length ? resume.education : [{}]).map(eduRowHtml).join('');
     $('projList').innerHTML = (resume.projects || []).map(projectRowHtml).join('');
     $('interList').innerHTML = (resume.internships || []).map(internRowHtml).join('');
+    $('honorList').innerHTML = (resume.honors || []).map(honorRowHtml).join('');
     refreshCompleteness();
   }
 
@@ -653,6 +690,7 @@
       ['教育经历', (resume.education || []).length + ' 条'],
       ['项目经历', (resume.projects || []).length + ' 条'],
       ['实习经历', (resume.internships || []).length + ' 条'],
+      ['荣誉奖项', (resume.honors || []).length + ' 项'],
       ['技能标签', (resume.skills || []).length + ' 个'],
     ];
     $('uploadStats').innerHTML = stats.map((item) =>
@@ -1009,12 +1047,13 @@
       edu: () => eduRowHtml(),
       project: () => projectRowHtml(),
       intern: () => internRowHtml(),
+      honor: () => honorRowHtml(),
     };
     document.addEventListener('click', (event) => {
       const addBtn = event.target.closest('[data-add]');
       if (addBtn) {
         const key = addBtn.getAttribute('data-add');
-        const targetId = { edu: 'eduList', project: 'projList', intern: 'interList' }[key];
+        const targetId = { edu: 'eduList', project: 'projList', intern: 'interList', honor: 'honorList' }[key];
         const container = $(targetId);
         if (container) container.insertAdjacentHTML('beforeend', adders[key]());
         refreshCompleteness();
@@ -1031,7 +1070,7 @@
     ['fRole', 'fDirection', 'fIndustry', 'fCity', 'fIntro'].forEach((id) => {
       $(id).addEventListener('input', refreshCompleteness);
     });
-    ['eduList', 'projList', 'interList'].forEach((id) => {
+    ['eduList', 'projList', 'interList', 'honorList'].forEach((id) => {
       $(id).addEventListener('input', refreshCompleteness);
     });
 

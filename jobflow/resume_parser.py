@@ -13,14 +13,15 @@ _SECTION_RULES = [
     ("education", r"教育经历|教育背景|教育情况|学历背景|学习经历|教育"),
     ("project", r"项目经历|项目经验|项目实践|科研项目|课程项目|项目"),
     ("intern", r"实习经历|实习经验|工作经历|工作经验|社会实践|实习"),
-    ("skill", r"专业技能|个人技能|技能清单|技能证书|资格证书|专业能力|技能"),
+    ("honor", r"荣誉奖项|获奖经历|获奖情况|所获荣誉|个人荣誉|奖项"),
+    ("skill", r"专业技能|个人技能|技能清单|技能证书|资格证书|专业能力|综合能力|其他能力|技能"),
 ]
 
 _HEADING_LINE = re.compile(
     r"^(?:[一二三四五六七八九十\d、.\-]+\s*)?"
     r"(?:教育经历|教育背景|教育情况|学习经历|教育|项目经历|项目经验|项目实践|科研项目|"
     r"课程项目|项目|实习经历|实习经验|工作经历|工作经验|社会实践|实习|专业技能|个人技能|"
-    r"技能清单|技能证书|资格证书|专业能力|技能|求职意向|应聘岗位|期望岗位|期望职位|"
+    r"技能清单|技能证书|资格证书|专业能力|综合能力|其他能力|技能|荣誉奖项|获奖经历|获奖情况|所获荣誉|个人荣誉|奖项|求职意向|应聘岗位|期望岗位|期望职位|"
     r"目标岗位|意向岗位|自我评价|个人简介|个人总结|个人概述|自我介绍|自我描述|"
     r"基本信息|个人资料|个人信息|基本资料)\s*[:：]?$"
 )
@@ -87,7 +88,7 @@ def _field_before_colon(line: str, names: List[str]) -> str:
 def _split_values(text: str) -> List[str]:
     """把技能/证书文本按常见分隔符切成标签。"""
     text = re.sub(r"\s+", " ", text)
-    parts = re.split(r"[,，、;；/|/]", text)
+    parts = re.split(r"[,，、;；|｜]", text)
     values = []
     for part in parts:
         value = part.strip()
@@ -131,7 +132,7 @@ def _sectionize(lines: List[str]):
                     return kind
         numbered = re.match(r"^(?:[一二三四五六七八九十\d]+)[、.．]\s*(.*)$", line)
         candidate = numbered.group(1).strip() if numbered else line
-        if candidate and len(candidate) <= 12 and re.search(r"经历|背景|简介|评价|技能|意向|信息", candidate):
+        if candidate and len(candidate) <= 12 and re.search(r"经历|背景|简介|评价|技能|能力|奖项|意向|信息", candidate):
             for kind, pattern in _SECTION_RULES:
                 if re.search(pattern, candidate):
                     return kind
@@ -183,13 +184,41 @@ def _clean_record(value: str, limit: int = 500) -> str:
     return re.sub(r"\s+", " ", value or "").strip()[:limit]
 
 
+def _clean_multiline(value: str, limit: int = 3000) -> str:
+    lines = []
+    for raw in str(value or "").splitlines():
+        line = re.sub(r"[ \t]+", " ", raw).strip()
+        if line:
+            lines.append(line)
+    return "\n".join(lines)[:limit]
+
+
+def _strip_bullet(value: str) -> str:
+    return re.sub(r"^[\s•·●○▪\-—]+", "", value or "").strip()
+
+
 def _parse_education(block_lines: List[str]) -> List[Dict]:
     records = []
-    for block in _text_blocks(block_lines):
-        text = " ".join(_clean_line(x) for x in block)
+    groups: List[List[str]] = []
+    current: List[str] = []
+    for raw in block_lines:
+        line = _clean_line(raw)
+        if not line:
+            continue
+        if _looks_like_school(line):
+            if current:
+                groups.append(current)
+            current = [line]
+        else:
+            current.append(line)
+    if current:
+        groups.append(current)
+
+    for block in groups:
+        text = _clean_line(block[0])
         if not any(k in text for k in ["大学", "学院", "学校", "研究院", "中学"]) and not _PERIOD.search(text):
             continue
-        item = {"school": "", "major": "", "degree": "", "period": ""}
+        item = {"school": "", "major": "", "degree": "", "period": "", "highlights": ""}
         period = _PERIOD.search(text)
         if period:
             item["period"] = re.sub(r"\s+", "", period.group(0))
@@ -210,73 +239,137 @@ def _parse_education(block_lines: List[str]) -> List[Dict]:
             major_candidate = parts[0].strip("（()）")
             if len(major_candidate) <= 30:
                 item["major"] = major_candidate
+        if len(block) > 1:
+            item["highlights"] = _clean_multiline("\n".join(block[1:]), 1500)
         if item["school"] or item["period"]:
-            records.append({k: _clean_record(v, 80) for k, v in item.items()})
+            records.append({
+                k: (_clean_multiline(v, 1500) if k == "highlights" else _clean_record(v, 80))
+                for k, v in item.items()
+            })
     return records[:4]
 
 
+def _project_title(line: str) -> bool:
+    parts = line.split("|")
+    if len(parts) >= 3 and len(parts[0].strip()) <= 100:
+        return True
+    return line.startswith("《") and "|" in line
+
+
+def _project_groups(block_lines: List[str]) -> List[List[str]]:
+    groups: List[List[str]] = []
+    current: List[str] = []
+    for raw in block_lines:
+        line = _clean_line(raw)
+        if not line:
+            if current:
+                groups.append(current)
+                current = []
+            continue
+        if _project_title(line):
+            if current:
+                groups.append(current)
+            current = [line]
+        else:
+            current.append(line)
+    if current:
+        groups.append(current)
+    return groups
+
+
+def _parse_project_group(block: List[str]) -> Dict:
+    title = block[0].strip(":：.。，, |｜")
+    parts = [part.strip(" |｜:：.。") for part in title.split("|")]
+    item = {"name": parts[0], "subtitle": "", "period": "", "description": "", "achievement": ""}
+    item["name"] = re.sub(r"\s+([》」)）])", r"\1", item["name"])
+    item["name"] = re.sub(r"([《「(（])\s+", r"\1", item["name"])
+    if len(parts) > 1:
+        item["subtitle"] = " | ".join(part for part in parts[1:] if part)
+    period = _PERIOD.search(title)
+    if period:
+        item["period"] = re.sub(r"\s+", "", period.group(0))
+        item["name"] = item["name"].replace(period.group(0).strip(), "").strip(" -—")
+    if not item["name"]:
+        item["name"] = "未命名项目"
+
+    mode = None
+    content_lines = []
+    harvest_lines = []
+    for raw in block[1:]:
+        line = _strip_bullet(raw)
+        if not line:
+            continue
+        lower = line
+        if lower.startswith("项目内容") or lower.startswith("项目简介"):
+            mode = "content"
+            rest = re.sub(r"^项目(?:内容|简介)\s*[:：]?\s*", "", line)
+            if rest:
+                content_lines.append(rest)
+        elif lower.startswith("项目收获") or lower.startswith("项目成果"):
+            mode = "harvest"
+            rest = re.sub(r"^项目(?:收获|成果)\s*[:：]?\s*", "", line)
+            if rest:
+                harvest_lines.append(rest)
+        elif mode == "content":
+            content_lines.append(line)
+        elif mode == "harvest":
+            harvest_lines.append(line)
+        else:
+            content_lines.append(line)
+    item["description"] = _clean_multiline("\n".join(content_lines), 3000)
+    item["achievement"] = _clean_multiline("\n".join(harvest_lines), 2500)
+    return item
+
+
+def _parse_intern_group(block: List[str], text: str) -> Dict:
+    item = {}
+    period = _PERIOD.search(text)
+    if period:
+        item["period"] = re.sub(r"\s+", "", period.group(0))
+    period_in_first = _PERIOD.search(block[0])
+    period_text = period_in_first.group(0).strip() if period_in_first else ""
+    first = re.sub(re.escape(period_text), "", block[0]).strip(":：.。，, -—")
+    text_body = _clean_multiline("\n".join(block[1:]), 2000)
+    if not block[1:]:
+        text_body = ""
+    role_match = re.search(r"(?:岗位|职位|担任)\s*[:：]\s*([\u4e00-\u9fa5A-Za-z0-9/（）()·-]{1,30})", text)
+    role = role_match.group(1) if role_match else ""
+    company = ""
+    known_company = re.search(
+        r"([\u4e00-\u9fa5A-Za-z0-9·]{2,24}(?:事务所|公司|集团|银行|证券|保险|科技|研究院|学校|医院))",
+        first,
+    )
+    if known_company:
+        company = known_company.group(1)
+        leftover = first.replace(company, "", 1).strip(" |｜-—")
+        if leftover and not role and not leftover.startswith(("202", "19")):
+            role = leftover
+    else:
+        tokens = [token for token in re.split(r"[\s|｜/]+", first) if token]
+        if tokens:
+            company = tokens[0]
+            if len(tokens) > 1 and re.search(r"(实习|专员|助理|工程师|分析师|经理|顾问|实习生)", tokens[1]):
+                if not role:
+                    role = tokens[1]
+    if len(company) <= 2 and company in ["无", "暂无", "待定"]:
+        company = ""
+    item["company"] = _clean_record(company, 60)
+    item["role"] = _clean_record(role, 50)
+    item["description"] = text_body
+    return item
+
+
 def _parse_experience(block_lines: List[str], kind: str) -> List[Dict]:
-    """解析项目/实习内容。按空行分块，尽力保留名称/角色/时间/描述。"""
+    """解析项目/实习内容：项目按「标题 | 赛事 | 角色」分行，实习按空行分块。"""
+    if kind == "project":
+        groups = _project_groups(block_lines)
+        return [_parse_project_group(group) for group in groups if group][:4]
     records = []
     for block in _text_blocks(block_lines):
         text = " ".join(_clean_line(x) for x in block)
         if not text or len(text) < 2:
             continue
-        item = {}
-        period = _PERIOD.search(text)
-        if period:
-            item["period"] = re.sub(r"\s+", "", period.group(0))
-            text = text.replace(period.group(0), " ")
-        if kind == "project":
-            period_text = period.group(0).strip() if period else ""
-            item["name"] = re.sub(re.escape(period_text), "", block[0]).strip(":：.。，, -—")
-            if not item["name"]:
-                item["name"] = "未命名项目"
-            body = _clean_record(" ".join(block[1:]), 1200)
-            item["description"] = body
-            if not body and len(block) == 1:
-                inline = re.sub(
-                    r"^[\u4e00-\u9fa5A-Za-z0-9·（）()/-]{2,60}\s*[-—:：]\s*",
-                    "",
-                    block[0],
-                )
-                if inline and inline != block[0]:
-                    item["description"] = _clean_record(inline, 1200)
-        else:
-            period_in_first = _PERIOD.search(block[0])
-            period_text = period_in_first.group(0).strip() if period_in_first else ""
-            first = re.sub(re.escape(period_text), "", block[0]).strip(":：.。，, -—")
-            text_body = _clean_record(" ".join(block[1:]), 1200)
-            if not block[1:]:
-                text_body = ""
-            role_match = re.search(r"(?:岗位|职位|担任)\s*[:：]\s*([\u4e00-\u9fa5A-Za-z0-9/（）()·-]{1,30})", text)
-            if role_match:
-                role = role_match.group(1)
-            else:
-                role = ""
-            company = ""
-            known_company = re.search(
-                r"([\u4e00-\u9fa5A-Za-z0-9·]{2,24}(?:事务所|公司|集团|银行|证券|保险|科技|研究院|学校|医院))",
-                first,
-            )
-            if known_company:
-                company = known_company.group(1)
-                leftover = first.replace(company, "", 1).strip(" |｜-—")
-                if leftover and not role and not leftover.startswith(("202", "19")):
-                    role = leftover
-            else:
-                tokens = [token for token in re.split(r"[\s|｜/]+", first) if token]
-                if tokens:
-                    company = tokens[0]
-                    if len(tokens) > 1 and re.search(r"(实习|专员|助理|工程师|分析师|经理|顾问|实习生)", tokens[1]):
-                        if not role:
-                            role = tokens[1]
-            if len(company) <= 2 and company in ["无", "暂无", "待定"]:
-                company = ""
-            item["company"] = _clean_record(company, 60)
-            item["role"] = _clean_record(role, 50)
-            item["description"] = text_body
-        records.append(item)
+        records.append(_parse_intern_group(block, text))
     return records[:4]
 
 
@@ -296,6 +389,7 @@ def parse_resume_text(text: str, source_name: str = "") -> Dict:
         "education": [],
         "projects": [],
         "internships": [],
+        "honors": [],
         "skills": [],
     }
     warnings = []
@@ -314,16 +408,21 @@ def parse_resume_text(text: str, source_name: str = "") -> Dict:
         if name_match and "教育" not in name_match.group(1) and "简历" not in name_match.group(1):
             resume["full_name"] = name_match.group(1)
     phone = _PHONE.search(text)
-    if phone and not resume["phone"]:
+    if phone:
         resume["phone"] = phone.group(0)
     email = _EMAIL.search(text)
-    if email and not resume["email"]:
+    if email:
         resume["email"] = email.group(0)
 
     sections = _sectionize(lines)
     for kind, section_lines in sections:
+        body_lines = [
+            _strip_bullet(line)
+            for line in section_lines
+            if not _HEADING_LINE.match(line)
+        ]
         if kind == "objective":
-            for line in section_lines:
+            for line in body_lines:
                 value = _field_before_colon(line, ["求职意向", "应聘岗位", "期望岗位", "期望职位", "目标岗位", "意向岗位"])
                 if value and not resume["target_role"]:
                     resume["target_role"] = value.strip("（）()[]【】 ")[:80]
@@ -345,15 +444,31 @@ def parse_resume_text(text: str, source_name: str = "") -> Dict:
                     if city:
                         resume["target_city"] = city[:30]
         elif kind == "profile":
-            resume["self_intro"] = _clean_record("；".join(section_lines), 600)
+            resume["self_intro"] = _clean_record("；".join(body_lines), 600)
         elif kind == "education":
-            resume["education"].extend(_parse_education(section_lines))
+            resume["education"].extend(_parse_education(body_lines))
         elif kind == "project":
-            resume["projects"].extend(_parse_experience(section_lines, "project"))
+            resume["projects"].extend(_parse_experience(body_lines, "project"))
         elif kind == "intern":
-            resume["internships"].extend(_parse_experience(section_lines, "intern"))
+            resume["internships"].extend(_parse_experience(body_lines, "intern"))
+        elif kind == "honor":
+            for raw in body_lines:
+                line = raw.strip("：: .。")
+                if not line or len(line) < 4:
+                    continue
+                if re.match(r"^[\d一二三四五六七八九十]+\s*[:：]?\s*(荣誉|奖项|获奖|综合|技能)", line):
+                    continue
+                resume["honors"].append(line[:120])
         elif kind == "skill":
-            for value in _split_values(" ".join(section_lines)):
+            skill_texts = []
+            for line in body_lines:
+                for label in ["专业技能", "个人技能", "技能证书", "技能"]:
+                    if label in line:
+                        line = re.split(rf"^{label}\s*[:：]", line, maxsplit=1)[-1]
+                        break
+                if line and line not in {"综合能力", "其他能力", "专业能力", "技能"}:
+                    skill_texts.append(line)
+            for value in _split_values(" ".join(skill_texts)):
                 if value not in resume["skills"]:
                     resume["skills"].append(value)
 
@@ -381,6 +496,15 @@ def parse_resume_text(text: str, source_name: str = "") -> Dict:
     resume["education"] = resume["education"][:4]
     resume["projects"] = resume["projects"][:4]
     resume["internships"] = resume["internships"][:4]
+    resume["honors"] = list(dict.fromkeys(resume["honors"]))[:12]
+    award_markers = "奖学金|三好|优秀|竞赛奖|比赛奖|获奖|一等奖|二等奖|三等奖|荣誉|称号"
+    for raw in lines:
+        line = _strip_bullet(raw)
+        if not line or line in resume["honors"]:
+            continue
+        if re.match(r"^(?:19|20)\d{2}\s*[./]?\s*\d{0,2}", line) and re.search(award_markers, line):
+            resume["honors"].append(line[:120])
+    resume["honors"] = list(dict.fromkeys(resume["honors"]))[:12]
     resume["skills"] = resume["skills"][:30]
 
     if not resume["education"]:

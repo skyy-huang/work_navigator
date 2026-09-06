@@ -11,6 +11,20 @@ def _text(value, limit=400) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip()[:limit]
 
 
+def _keep_lines(value, limit=4000) -> str:
+    lines = []
+    for raw in str(value or "").splitlines():
+        line = re.sub(r"[ \t]+", " ", raw).strip()
+        if line:
+            lines.append(line)
+    text = "\n".join(lines)
+    return text[:limit]
+
+
+def _html(value) -> str:
+    return escape(str(value or "")).replace("\n", "<br/>")
+
+
 def _contact_lines(resume: Dict) -> str:
     parts = [_text(resume.get("phone")), _text(resume.get("email"))]
     wechat = _text(resume.get("wechat"))
@@ -58,11 +72,14 @@ def resume_to_docx(resume: Dict, profile: Optional[Dict] = None) -> bytes:
 
     def add_line(text, bold=False, size=10.5):
         p = doc.add_paragraph()
-        run = p.add_run(text)
-        run.font.name = "Microsoft YaHei"
-        run.font.size = Pt(size)
-        run.font.bold = bold
-        run.element.rPr.rFonts.set(qn("w:eastAsia"), "微软雅黑")
+        for index, segment in enumerate((text or "").split("\n")):
+            if index:
+                p.add_run().add_break()
+            run = p.add_run(segment)
+            run.font.name = "Microsoft YaHei"
+            run.font.size = Pt(size)
+            run.font.bold = bold
+            run.element.rPr.rFonts.set(qn("w:eastAsia"), "微软雅黑")
         return p
 
     meta = [info.get("school"), info.get("major"), info.get("grade")]
@@ -100,12 +117,19 @@ def resume_to_docx(resume: Dict, profile: Optional[Dict] = None) -> bytes:
             _text(edu.get("degree")),
             _text(edu.get("period")),
         ] if v)
-        edu_items.append((title, ""))
+        edu_items.append((title, _keep_lines(edu.get("highlights"), 2000)))
     section("教育经历", edu_items)
     proj_items = []
     for proj in resume.get("projects") or []:
-        title = "  ".join(v for v in [_text(proj.get("name")), _text(proj.get("period"))] if v)
-        proj_items.append((title, _text(proj.get("description"), 1000)))
+        title_parts = [_text(proj.get("name")), _text(proj.get("subtitle")), _text(proj.get("period"))]
+        body_parts = []
+        description = _keep_lines(proj.get("description"), 3000)
+        achievement = _keep_lines(proj.get("achievement"), 3000)
+        if description:
+            body_parts.append("项目内容：" + description)
+        if achievement:
+            body_parts.append("项目收获：" + achievement)
+        proj_items.append(("  ".join(v for v in title_parts if v), "\n".join(body_parts)))
     section("项目经历", proj_items)
     inter_items = []
     for inter in resume.get("internships") or []:
@@ -116,6 +140,8 @@ def resume_to_docx(resume: Dict, profile: Optional[Dict] = None) -> bytes:
         ] if v)
         inter_items.append((title, _text(inter.get("description"), 1000)))
     section("实习经历", inter_items)
+    if resume.get("honors"):
+        section("荣誉奖项", [_keep_lines(item, 200) for item in resume.get("honors")])
     if resume.get("skills"):
         section("专业技能", [" / ".join(resume.get("skills") or [])])
 
@@ -196,26 +222,26 @@ def resume_to_pdf(resume: Dict, profile: Optional[Dict] = None) -> bytes:
         "BodyCN", fontName=font_name, fontSize=10.5, leading=17,
         spaceAfter=4, wordWrap="CJK",
     )
-    story = [Paragraph(escape(info["name"]), title_style)]
+    story = [Paragraph(_html(info["name"]), title_style)]
     meta = "　".join(v for v in [info.get("school"), info.get("major"), info.get("grade")] if v)
     if meta:
-        story.append(Paragraph(escape(meta), meta_style))
+        story.append(Paragraph(_html(meta), meta_style))
     if info.get("contact"):
-        story.append(Paragraph(escape(info["contact"]), meta_style))
+        story.append(Paragraph(_html(info["contact"]), meta_style))
 
     def add_section(title, entries):
         if not entries:
             return
-        story.append(Paragraph(escape(title), section_style))
+        story.append(Paragraph(_html(title), section_style))
         for entry in entries:
             if isinstance(entry, tuple):
                 head, body = entry
                 if head:
-                    story.append(Paragraph("<b>" + escape(head) + "</b>", body_style))
+                    story.append(Paragraph("<b>" + _html(head) + "</b>", body_style))
                 if body:
-                    story.append(Paragraph(escape(body), body_style))
+                    story.append(Paragraph(_html(body), body_style))
             else:
-                story.append(Paragraph(escape(entry), body_style))
+                story.append(Paragraph(_html(entry), body_style))
 
     objective_parts = [v for v in [
         _text(resume.get("target_role")),
@@ -231,13 +257,22 @@ def resume_to_pdf(resume: Dict, profile: Optional[Dict] = None) -> bytes:
             _text(edu.get("school")), _text(edu.get("major")),
             _text(edu.get("degree")), _text(edu.get("period")),
         ] if v)
-        edu_items.append((title, ""))
+        edu_items.append((title, _keep_lines(edu.get("highlights"), 2000)))
     add_section("教育经历", edu_items)
 
     proj_items = []
     for proj in resume.get("projects") or []:
-        title = "　".join(v for v in [_text(proj.get("name")), _text(proj.get("period"))] if v)
-        proj_items.append((title, _text(proj.get("description"), 1000)))
+        title = "　".join(v for v in [
+            _text(proj.get("name")), _text(proj.get("subtitle")), _text(proj.get("period")),
+        ] if v)
+        body_parts = []
+        description = _keep_lines(proj.get("description"), 3000)
+        achievement = _keep_lines(proj.get("achievement"), 3000)
+        if description:
+            body_parts.append("项目内容：" + description)
+        if achievement:
+            body_parts.append("项目收获：" + achievement)
+        proj_items.append((title, "\n".join(body_parts)))
     add_section("项目经历", proj_items)
 
     inter_items = []
@@ -247,6 +282,8 @@ def resume_to_pdf(resume: Dict, profile: Optional[Dict] = None) -> bytes:
         ] if v)
         inter_items.append((title, _text(inter.get("description"), 1000)))
     add_section("实习经历", inter_items)
+    if resume.get("honors"):
+        add_section("荣誉奖项", [_keep_lines(item, 200) for item in resume.get("honors")])
     if resume.get("skills"):
         add_section("专业技能", [" / ".join(resume.get("skills") or [])])
 
